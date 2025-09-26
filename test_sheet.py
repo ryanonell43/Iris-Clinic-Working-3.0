@@ -15,6 +15,7 @@ scopes = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
+
 try:
     creds_dict = json.loads(st.secrets["google_service_account"]["json"])
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
@@ -124,6 +125,7 @@ if not df.empty:
                     st.error(f"Could not delete from Google Sheet: {e}")
             st.success("Row deleted successfully!")
 
+# --- DOWNLOAD CSV ---
 st.download_button(
     label="Download CSV",
     data=df.to_csv(index=False).encode("utf-8"),
