@@ -125,6 +125,16 @@ if not df.empty:
                     st.error(f"Could not delete from Google Sheet: {e}")
             st.success("Row deleted successfully!")
 
+
+        if st.button("Delete Row"):
+            df = df.drop(selected_index).reset_index(drop=True)
+            if sheet_connected:
+                try:
+                    sheet.delete_rows(selected_index + 2)
+                except Exception as e:
+                    st.error(f"Could not delete from Google Sheet: {e}")
+            st.success("Row deleted successfully!")
+
 # --- DOWNLOAD CSV ---
 st.download_button(
     label="Download CSV",
