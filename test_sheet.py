@@ -38,10 +38,12 @@ if sheet_connected:
     # --- LOAD DATA ---
     records = sheet.get_all_records()
     df = pd.DataFrame(records)
-    if df.empty:
-        df = pd.DataFrame(columns=["Patient Name", "Amount Paid", "Date", "Notes"])
 else:
     df = pd.DataFrame(columns=["Patient Name", "Amount Paid", "Date", "Notes"])
+
+# --- CLEAN COLUMN NAMES ---
+df.columns = df.columns.str.strip()
+df.columns = [col.title() for col in df.columns]
 
 # --- FILTER DATA ---
 st.subheader("Filter Payments")
@@ -52,7 +54,8 @@ with st.expander("Filter Options"):
 
 filtered_df = df.copy()
 if patient_filter:
-    filtered_df = filtered_df[filtered_df["Patient Name"].str.contains(patient_filter, case=False, na=False)]
+    if "Patient Name" in filtered_df.columns:
+        filtered_df = filtered_df[filtered_df["Patient Name"].str.contains(patient_filter, case=False, na=False)]
 
 if "Date" in filtered_df.columns:
     filtered_df["Date"] = pd.to_datetime(filtered_df["Date"], errors='coerce')
@@ -79,12 +82,15 @@ if submit:
     if patient_name.strip() == "":
         st.error("Patient Name cannot be empty.")
     else:
-        new_row = {"Patient Name": patient_name,
-                   "Amount Paid": amount_paid,
-                   "Date": str(date_input),
-                   "Notes": notes}
+        new_row = {
+            "Patient Name": patient_name,
+            "Amount Paid": amount_paid,
+            "Date": str(date_input),
+            "Notes": notes
+        }
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         st.success(f"Added payment for {patient_name} successfully!")
+
         if sheet_connected:
             try:
                 sheet.append_row([patient_name, amount_paid, str(date_input), notes])
@@ -93,38 +99,41 @@ if submit:
 
 # --- EDIT / DELETE ENTRY ---
 st.subheader("Edit or Delete Payment")
+
 if not df.empty:
-    selected_index = st.number_input("Select Row Index to Edit/Delete (starts at 0)",
-                                     min_value=0, max_value=len(df)-1, step=1)
+    selected_index = st.number_input(
+        "Select Row Index to Edit/Delete (starts at 0)",
+        min_value=0, max_value=len(df)-1, step=1
+    )
     if st.button("Load Selected Row"):
         row = df.iloc[selected_index]
-        new_name = st.text_input("Patient Name", value=row["Patient Name"])
-        new_amount = st.number_input("Amount Paid", min_value=0.0, step=0.01, value=float(row["Amount Paid"]))
-        new_date = st.date_input("Date", value=pd.to_datetime(row["Date"]))
-        new_notes = st.text_area("Notes", value=row["Notes"])
+
+        # Safely get values
+        patient_name_val = row["Patient Name"] if "Patient Name" in row else ""
+        amount_paid_val = float(row["Amount Paid"]) if "Amount Paid" in row else 0.0
+        date_val = pd.to_datetime(row["Date"]) if "Date" in row else datetime.today()
+        notes_val = row["Notes"] if "Notes" in row else ""
+
+        new_name = st.text_input("Patient Name", value=patient_name_val)
+        new_amount = st.number_input("Amount Paid", min_value=0.0, step=0.01, value=amount_paid_val)
+        new_date = st.date_input("Date", value=date_val)
+        new_notes = st.text_area("Notes", value=notes_val)
 
         if st.button("Update Row"):
             df.at[selected_index, "Patient Name"] = new_name
             df.at[selected_index, "Amount Paid"] = new_amount
             df.at[selected_index, "Date"] = str(new_date)
             df.at[selected_index, "Notes"] = new_notes
+
             if sheet_connected:
                 try:
-                    sheet.update(f"A{selected_index+2}:D{selected_index+2}",
-                                 [[new_name, new_amount, str(new_date), new_notes]])
+                    sheet.update(
+                        f"A{selected_index+2}:D{selected_index+2}",
+                        [[new_name, new_amount, str(new_date), new_notes]]
+                    )
                 except Exception as e:
                     st.error(f"Could not update Google Sheet: {e}")
             st.success("Row updated successfully!")
-
-        if st.button("Delete Row"):
-            df = df.drop(selected_index).reset_index(drop=True)
-            if sheet_connected:
-                try:
-                    sheet.delete_rows(selected_index + 2)
-                except Exception as e:
-                    st.error(f"Could not delete from Google Sheet: {e}")
-            st.success("Row deleted successfully!")
-
 
         if st.button("Delete Row"):
             df = df.drop(selected_index).reset_index(drop=True)
