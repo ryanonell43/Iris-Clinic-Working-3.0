@@ -124,7 +124,9 @@ if not df.empty:
                     st.error(f"Could not delete from Google Sheet: {e}")
             st.success("Row deleted successfully!")
 
-# --- DOWNLOAD DATA ---
-csv = df.to_csv(index=False).encode("utf-8")
 st.download_button(
-    label="Dow
+    label="Download CSV",
+    data=df.to_csv(index=False).encode("utf-8"),
+    file_name="patient_payments.csv",
+    mime="text/csv"
+)
