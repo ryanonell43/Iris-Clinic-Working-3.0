@@ -101,23 +101,30 @@ if submit:
 st.subheader("Edit or Delete Payment")
 
 if not df.empty:
+    # Initialize session state for selected row
+    if "selected_index" not in st.session_state:
+        st.session_state.selected_index = 0
+
     selected_index = st.number_input(
         "Select Row Index to Edit/Delete (starts at 0)",
-        min_value=0, max_value=len(df)-1, step=1
+        min_value=0, max_value=len(df)-1,
+        step=1,
+        key="selected_index_input"
     )
+
+    # Store row values in session_state when loaded
     if st.button("Load Selected Row"):
-        row = df.iloc[selected_index]
+        st.session_state.patient_name_val = df.at[selected_index, "Patient Name"] if "Patient Name" in df.columns else ""
+        st.session_state.amount_paid_val = df.at[selected_index, "Amount Paid"] if "Amount Paid" in df.columns else 0.0
+        st.session_state.date_val = pd.to_datetime(df.at[selected_index, "Date"]) if "Date" in df.columns else datetime.today()
+        st.session_state.notes_val = df.at[selected_index, "Notes"] if "Notes" in df.columns else ""
 
-        # Safely get values
-        patient_name_val = row["Patient Name"] if "Patient Name" in row else ""
-        amount_paid_val = float(row["Amount Paid"]) if "Amount Paid" in row else 0.0
-        date_val = pd.to_datetime(row["Date"]) if "Date" in row else datetime.today()
-        notes_val = row["Notes"] if "Notes" in row else ""
-
-        new_name = st.text_input("Patient Name", value=patient_name_val)
-        new_amount = st.number_input("Amount Paid", min_value=0.0, step=0.01, value=amount_paid_val)
-        new_date = st.date_input("Date", value=date_val)
-        new_notes = st.text_area("Notes", value=notes_val)
+    # Only display the form if row is loaded
+    if "patient_name_val" in st.session_state:
+        new_name = st.text_input("Patient Name", value=st.session_state.patient_name_val, key="edit_name")
+        new_amount = st.number_input("Amount Paid", min_value=0.0, step=0.01, value=float(st.session_state.amount_paid_val), key="edit_amount")
+        new_date = st.date_input("Date", value=st.session_state.date_val, key="edit_date")
+        new_notes = st.text_area("Notes", value=st.session_state.notes_val, key="edit_notes")
 
         if st.button("Update Row"):
             df.at[selected_index, "Patient Name"] = new_name
@@ -133,6 +140,7 @@ if not df.empty:
                     )
                 except Exception as e:
                     st.error(f"Could not update Google Sheet: {e}")
+
             st.success("Row updated successfully!")
 
         if st.button("Delete Row"):
@@ -143,6 +151,11 @@ if not df.empty:
                 except Exception as e:
                     st.error(f"Could not delete from Google Sheet: {e}")
             st.success("Row deleted successfully!")
+
+            # Clear session_state after deletion
+            for key in ["patient_name_val", "amount_paid_val", "date_val", "notes_val"]:
+                if key in st.session_state:
+                    del st.session_state[key]
 
 # --- DOWNLOAD CSV ---
 st.download_button(
