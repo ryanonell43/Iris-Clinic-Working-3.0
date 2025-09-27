@@ -41,9 +41,13 @@ if sheet_connected:
 else:
     df = pd.DataFrame(columns=["Patient Name", "Amount Paid", "Date", "Notes"])
 
-# --- CLEAN COLUMN NAMES ---
-df.columns = df.columns.str.strip()
-df.columns = [col.title() for col in df.columns]
+# --- CLEAN COLUMN NAMES SAFELY ---
+if not df.empty:
+    df.columns = df.columns.astype(str).str.strip()
+    df.columns = [col.title() for col in df.columns]
+else:
+    # Ensure correct schema if sheet is empty
+    df = pd.DataFrame(columns=["Patient Name", "Amount Paid", "Date", "Notes"])
 
 # --- FILTER DATA ---
 st.subheader("Filter Payments")
@@ -53,9 +57,8 @@ with st.expander("Filter Options"):
     end_date = st.date_input("End Date", value=datetime.today())
 
 filtered_df = df.copy()
-if patient_filter:
-    if "Patient Name" in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df["Patient Name"].str.contains(patient_filter, case=False, na=False)]
+if patient_filter and "Patient Name" in filtered_df.columns:
+    filtered_df = filtered_df[filtered_df["Patient Name"].str.contains(patient_filter, case=False, na=False)]
 
 if "Date" in filtered_df.columns:
     filtered_df["Date"] = pd.to_datetime(filtered_df["Date"], errors='coerce')
@@ -101,7 +104,6 @@ if submit:
 st.subheader("Edit or Delete Payment")
 
 if not df.empty:
-    # Initialize session state for selected row
     if "selected_index" not in st.session_state:
         st.session_state.selected_index = 0
 
@@ -112,14 +114,12 @@ if not df.empty:
         key="selected_index_input"
     )
 
-    # Store row values in session_state when loaded
     if st.button("Load Selected Row"):
         st.session_state.patient_name_val = df.at[selected_index, "Patient Name"] if "Patient Name" in df.columns else ""
         st.session_state.amount_paid_val = df.at[selected_index, "Amount Paid"] if "Amount Paid" in df.columns else 0.0
         st.session_state.date_val = pd.to_datetime(df.at[selected_index, "Date"]) if "Date" in df.columns else datetime.today()
         st.session_state.notes_val = df.at[selected_index, "Notes"] if "Notes" in df.columns else ""
 
-    # Only display the form if row is loaded
     if "patient_name_val" in st.session_state:
         new_name = st.text_input("Patient Name", value=st.session_state.patient_name_val, key="edit_name")
         new_amount = st.number_input("Amount Paid", min_value=0.0, step=0.01, value=float(st.session_state.amount_paid_val), key="edit_amount")
@@ -152,7 +152,6 @@ if not df.empty:
                     st.error(f"Could not delete from Google Sheet: {e}")
             st.success("Row deleted successfully!")
 
-            # Clear session_state after deletion
             for key in ["patient_name_val", "amount_paid_val", "date_val", "notes_val"]:
                 if key in st.session_state:
                     del st.session_state[key]
