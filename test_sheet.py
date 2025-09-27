@@ -12,10 +12,12 @@ PASSWORD = "welcome01"
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
+
 def login_screen():
     st.title("🔐 Login to Iris Clinic App")
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
+
     if st.button("Login"):
         if username == USERNAME and password == PASSWORD:
             st.session_state.logged_in = True
@@ -24,172 +26,188 @@ def login_screen():
         else:
             st.error("❌ Invalid username or password")
 
-# --- GOOGLE SHEETS CONNECTION ---
-def connect_to_gsheets(sheet_name):
+
+def main_app():
+    st.title("💳 Patient Payments Tracker")
+
+    # --- GOOGLE SHEETS CONFIG ---
+    SHEET_NAME = "PatientPayments"
+
+    # --- AUTHENTICATE USING STREAMLIT SECRETS ---
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
+        "https://www.googleapis.com/auth/drive",
     ]
     try:
         creds_dict = json.loads(st.secrets["google_service_account"]["json"])
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
-        try:
-            sheet = client.open(sheet_name).sheet1
-        except gspread.SpreadsheetNotFound:
-            st.warning(f"'{sheet_name}' not found. Please create it in Google Sheets and share it with the service account.")
-            return None
-        return sheet
+        sheet_connected = True
     except Exception as e:
-        st.error(f"Google Sheets connection failed: {e}")
-        return None
+        st.warning(f"⚠️ Google Sheets not connected: {e}")
+        sheet_connected = False
 
-def app_for_sheet(sheet, sheet_title):
-    st.header(sheet_title)
+    # --- OPEN OR CREATE SHEET ---
+    if sheet_connected:
+        try:
+            sheet = client.open(SHEET_NAME).sheet1
+        except gspread.SpreadsheetNotFound:
+            st.info(f"Sheet '{SHEET_NAME}' not found. Creating a new one...")
+            sheet = client.create(SHEET_NAME).sheet1
+            sheet.append_row(["Patient Name", "Amount Paid", "Date", "Notes"])
+            st.success(f"Sheet '{SHEET_NAME}' created successfully!")
 
-    # --- LOAD DATA ---
-    if sheet:
         records = sheet.get_all_records()
         df = pd.DataFrame(records)
     else:
-        df = pd.DataFrame()
+        df = pd.DataFrame(columns=["Patient Name", "Amount Paid", "Date", "Notes"])
 
-    # Ensure correct schema
-    expected_cols = ["Name", "Amount", "Date", "Notes"]
-    if df.empty:
-        df = pd.DataFrame(columns=expected_cols)
+    # --- CLEAN COLUMN NAMES ---
+    if not df.empty:
+        df.columns = df.columns.astype(str).str.strip()
+        df.columns = [col.title() for col in df.columns]
     else:
-        df.columns = [col.title().strip() for col in df.columns]
-        for col in expected_cols:
-            if col not in df.columns:
-                df[col] = ""
+        df = pd.DataFrame(columns=["Patient Name", "Amount Paid", "Date", "Notes"])
 
     # --- FILTER DATA ---
-    st.subheader("🔍 Filter Records")
-    with st.expander("Filter Options", expanded=True):
-        name_filter = st.text_input("Filter by Name")
-        if not df.empty and "Date" in df.columns:
-            try:
-                df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-                min_date = df["Date"].min().date()
-                max_date = df["Date"].max().date()
-            except Exception:
-                min_date = max_date = datetime.today().date()
-        else:
-            min_date = max_date = datetime.today().date()
-
-        start_date = st.date_input("Start Date", value=min_date, min_value=min_date, max_value=max_date)
-        end_date = st.date_input("End Date", value=max_date, min_value=min_date, max_value=max_date)
+    st.subheader("🔍 Filter Payments")
+    with st.expander("Filter Options"):
+        patient_filter = st.text_input("Filter by Patient Name")
+        today = datetime.today().date()
+        start_date = st.date_input("Start Date", value=today)
+        end_date = st.date_input("End Date", value=today)
 
     filtered_df = df.copy()
-    if name_filter:
-        filtered_df = filtered_df[filtered_df["Name"].str.contains(name_filter, case=False, na=False)]
-    if not filtered_df.empty and "Date" in filtered_df.columns:
+    if patient_filter and "Patient Name" in filtered_df.columns:
         filtered_df = filtered_df[
-            (filtered_df["Date"].dt.date >= start_date) &
-            (filtered_df["Date"].dt.date <= end_date)
+            filtered_df["Patient Name"].str.contains(patient_filter, case=False, na=False)
         ]
 
+    if "Date" in filtered_df.columns:
+        filtered_df["Date"] = pd.to_datetime(filtered_df["Date"], errors="coerce")
+        filtered_df = filtered_df[
+            (filtered_df["Date"] >= pd.to_datetime(start_date))
+            & (filtered_df["Date"] <= pd.to_datetime(end_date))
+        ]
+
+    # --- DISPLAY FILTERED DATA ---
     st.dataframe(filtered_df)
 
-    # --- TOTAL ---
-    total_amount = filtered_df["Amount"].sum() if not filtered_df.empty else 0.0
-    st.subheader(f"💰 Total Amount: ₱{total_amount:,.2f}")
+    # --- TOTAL AMOUNT ---
+    total_amount = filtered_df["Amount Paid"].sum() if not filtered_df.empty else 0.0
+    st.subheader(f"💰 Total Amount Paid: ₱{total_amount:,.2f}")
 
     # --- ADD NEW ENTRY ---
-    st.subheader("➕ Add New Record")
-    with st.form(key=f"add_form_{sheet_title}"):
-        name = st.text_input("Name")
-        amount = st.number_input("Amount", min_value=0.0, step=0.01)
+    st.subheader("➕ Add New Payment")
+    with st.form(key="add_payment_form"):
+        patient_name = st.text_input("Patient Name")
+        amount_paid = st.number_input("Amount Paid", min_value=0.0, step=0.01)
         date_input = st.date_input("Date", value=datetime.today())
         notes = st.text_area("Notes (optional)")
-        submit = st.form_submit_button("Add")
+        submit = st.form_submit_button("Add Payment")
+
         if submit:
-            if name.strip() == "":
-                st.error("Name cannot be empty.")
+            if patient_name.strip() == "":
+                st.error("Patient Name cannot be empty.")
             else:
-                new_row = {"Name": name, "Amount": amount, "Date": str(date_input), "Notes": notes}
+                new_row = {
+                    "Patient Name": patient_name,
+                    "Amount Paid": amount_paid,
+                    "Date": str(date_input),
+                    "Notes": notes,
+                }
                 df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-                if sheet:
+                st.success(f"✅ Added payment for {patient_name} successfully!")
+
+                if sheet_connected:
                     try:
-                        sheet.append_row([name, amount, str(date_input), notes])
-                        st.success(f"Added record for {name} successfully!")
+                        sheet.append_row(
+                            [patient_name, amount_paid, str(date_input), notes]
+                        )
                     except Exception as e:
                         st.error(f"Could not save to Google Sheet: {e}")
 
     # --- EDIT / DELETE ENTRY ---
-    st.subheader("✏️ Edit or Delete Record")
+    st.subheader("✏️ Edit or 🗑️ Delete Payment")
     if not df.empty:
+        if "selected_index" not in st.session_state:
+            st.session_state.selected_index = 0
+
         selected_index = st.number_input(
-            "Select Row Index (starts at 0)", min_value=0, max_value=len(df)-1, step=1
+            "Select Row Index to Edit/Delete (starts at 0)",
+            min_value=0,
+            max_value=len(df) - 1,
+            step=1,
+            key="selected_index_input",
         )
 
-        if st.button("Load Selected Row", key=f"load_{sheet_title}"):
-            st.session_state[f"{sheet_title}_edit"] = {
-                "Name": df.at[selected_index, "Name"],
-                "Amount": df.at[selected_index, "Amount"],
-                "Date": pd.to_datetime(df.at[selected_index, "Date"]),
-                "Notes": df.at[selected_index, "Notes"],
-                "Index": selected_index
-            }
+        if st.button("Load Selected Row"):
+            st.session_state.patient_name_val = df.at[selected_index, "Patient Name"]
+            st.session_state.amount_paid_val = df.at[selected_index, "Amount Paid"]
+            st.session_state.date_val = pd.to_datetime(df.at[selected_index, "Date"])
+            st.session_state.notes_val = df.at[selected_index, "Notes"]
 
-        if f"{sheet_title}_edit" in st.session_state:
-            edit_data = st.session_state[f"{sheet_title}_edit"]
-            new_name = st.text_input("Name", value=edit_data["Name"])
-            new_amount = st.number_input("Amount", min_value=0.0, step=0.01, value=float(edit_data["Amount"]))
-            new_date = st.date_input("Date", value=edit_data["Date"])
-            new_notes = st.text_area("Notes", value=edit_data["Notes"])
+        if "patient_name_val" in st.session_state:
+            new_name = st.text_input(
+                "Patient Name", value=st.session_state.patient_name_val, key="edit_name"
+            )
+            new_amount = st.number_input(
+                "Amount Paid",
+                min_value=0.0,
+                step=0.01,
+                value=float(st.session_state.amount_paid_val),
+                key="edit_amount",
+            )
+            new_date = st.date_input(
+                "Date", value=st.session_state.date_val, key="edit_date"
+            )
+            new_notes = st.text_area(
+                "Notes", value=st.session_state.notes_val, key="edit_notes"
+            )
 
-            if st.button("Update Row", key=f"update_{sheet_title}"):
-                df.at[edit_data["Index"], "Name"] = new_name
-                df.at[edit_data["Index"], "Amount"] = new_amount
-                df.at[edit_data["Index"], "Date"] = str(new_date)
-                df.at[edit_data["Index"], "Notes"] = new_notes
-                if sheet:
+            if st.button("Update Row"):
+                df.at[selected_index, "Patient Name"] = new_name
+                df.at[selected_index, "Amount Paid"] = new_amount
+                df.at[selected_index, "Date"] = str(new_date)
+                df.at[selected_index, "Notes"] = new_notes
+
+                if sheet_connected:
                     try:
                         sheet.update(
-                            f"A{edit_data['Index']+2}:D{edit_data['Index']+2}",
-                            [[new_name, new_amount, str(new_date), new_notes]]
+                            f"A{selected_index+2}:D{selected_index+2}",
+                            [[new_name, new_amount, str(new_date), new_notes]],
                         )
-                        st.success("Row updated successfully!")
                     except Exception as e:
                         st.error(f"Could not update Google Sheet: {e}")
 
-            if st.button("Delete Row", key=f"delete_{sheet_title}"):
-                df = df.drop(edit_data["Index"]).reset_index(drop=True)
-                if sheet:
+                st.success("✅ Row updated successfully!")
+
+            if st.button("Delete Row"):
+                df = df.drop(selected_index).reset_index(drop=True)
+                if sheet_connected:
                     try:
-                        sheet.delete_rows(edit_data["Index"]+2)
-                        st.success("Row deleted successfully!")
+                        sheet.delete_rows(selected_index + 2)
                     except Exception as e:
                         st.error(f"Could not delete from Google Sheet: {e}")
-                del st.session_state[f"{sheet_title}_edit"]
+                st.success("🗑️ Row deleted successfully!")
+
+                for key in ["patient_name_val", "amount_paid_val", "date_val", "notes_val"]:
+                    if key in st.session_state:
+                        del st.session_state[key]
 
     # --- DOWNLOAD CSV ---
     st.download_button(
         label="📥 Download CSV",
         data=df.to_csv(index=False).encode("utf-8"),
-        file_name=f"{sheet_title.lower().replace(' ','_')}.csv",
-        mime="text/csv"
+        file_name="patient_payments.csv",
+        mime="text/csv",
     )
 
-def main_app():
-    st.title("🏥 Iris Clinic Management App")
-
-    menu = ["💳 Patient Payments", "💸 Expenses"]
-    choice = st.sidebar.radio("Navigate", menu)
-
-    if choice == "💳 Patient Payments":
-        payments_sheet = connect_to_gsheets("PatientPayments")
-        app_for_sheet(payments_sheet, "Patient Payments")
-    elif choice == "💸 Expenses":
-        expenses_sheet = connect_to_gsheets("Expenses")
-        app_for_sheet(expenses_sheet, "Expenses")
-
     # --- LOGOUT BUTTON ---
-    if st.sidebar.button("Logout"):
+    if st.button("🚪 Logout"):
         st.session_state.logged_in = False
         st.rerun()
+
 
 # --- RUN APP ---
 if not st.session_state.logged_in:
