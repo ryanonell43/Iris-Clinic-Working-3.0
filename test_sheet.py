@@ -129,3 +129,28 @@ def main_app():
     # Patient Payments Section
     st.header("💳 Patient Payments")
     df_patients, total_patients = crud_section(df_patients, ws_patients, "Payment",
+                                               ["Patient Name", "Amount Paid", "Date", "Notes"])
+
+    df_patients_filtered = filter_dataframe(df_patients, ["Patient Name", "Amount Paid", "Date", "Notes"])
+    st.subheader("📋 Filtered Payments")
+    st.dataframe(df_patients_filtered)
+    st.write(f"**Filtered Total Payments: ₱{df_patients_filtered['Amount Paid'].sum():,.2f}**")
+
+    # Expenses Section
+    st.header("💸 Clinic Expenses")
+    df_expenses, total_expenses = crud_section(df_expenses, ws_expenses, "Expense",
+                                               ["Expense Name", "Amount", "Date", "Notes"])
+
+    df_expenses_filtered = filter_dataframe(df_expenses, ["Expense Name", "Amount", "Date", "Notes"])
+    st.subheader("📋 Filtered Expenses")
+    st.dataframe(df_expenses_filtered)
+    st.write(f"**Filtered Total Expenses: ₱{df_expenses_filtered['Amount'].sum():,.2f}**")
+
+    # Balance Section
+    st.header("📊 Balance Overview")
+    balance = total_patients - total_expenses
+    st.metric("Net Balance", f"₱{balance:,.2f}")
+
+
+if __name__ == "__main__":
+    main_app()
