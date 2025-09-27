@@ -50,6 +50,29 @@ def load_or_create_worksheet(sheet, worksheet_name, headers):
         st.success(f"Worksheet '{worksheet_name}' created!")
     return ws
 
+def filter_dataframe(df, cols, section_name):
+    if df.empty:
+        return df
+
+    with st.expander(f"🔎 Filter {section_name}"):
+        name_filter = st.text_input(f"Filter by {cols[0]}")
+        start_date = st.date_input("Start Date", value=datetime.today())
+        end_date = st.date_input("End Date", value=datetime.today())
+
+    filtered_df = df.copy()
+
+    if name_filter:
+        filtered_df = filtered_df[filtered_df[cols[0]].str.contains(name_filter, case=False, na=False)]
+
+    if cols[2] in filtered_df.columns:
+        filtered_df[cols[2]] = pd.to_datetime(filtered_df[cols[2]], errors="coerce")
+        filtered_df = filtered_df[
+            (filtered_df[cols[2]] >= pd.to_datetime(start_date)) &
+            (filtered_df[cols[2]] <= pd.to_datetime(end_date))
+        ]
+
+    return filtered_df
+
 def crud_section(df, ws, section_name, cols):
     st.subheader(f"{section_name} List")
     st.dataframe(df)
@@ -60,9 +83,9 @@ def crud_section(df, ws, section_name, cols):
     # --- ADD NEW ---
     with st.form(f"add_{section_name.lower()}"):
         name = st.text_input(f"{cols[0]}")
-        amt = st.number_input("Amount", min_value=0.0, step=0.01)
-        date = st.date_input("Date", value=datetime.today())
-        notes = st.text_area("Notes")
+        amt = st.number_input("Amount", min_value=0.0, step=0.01, key=f"amt_{section_name}")
+        date = st.date_input("Date", value=datetime.today(), key=f"date_{section_name}")
+        notes = st.text_area("Notes", key=f"notes_{section_name}")
         submit = st.form_submit_button(f"Add {section_name}")
 
     if submit and name.strip() != "":
@@ -129,6 +152,7 @@ def main_app():
         ws_patients = load_or_create_worksheet(sheet, "Payments", ["Patient Name", "Amount Paid", "Date", "Notes"])
         df_patients = pd.DataFrame(ws_patients.get_all_records())
     else:
+        ws_patients = None
         df_patients = pd.DataFrame(columns=["Patient Name", "Amount Paid", "Date", "Notes"])
 
     if df_patients.empty:
@@ -139,17 +163,27 @@ def main_app():
         ws_expenses = load_or_create_worksheet(sheet, "Expenses", ["Expense Name", "Amount", "Date", "Notes"])
         df_expenses = pd.DataFrame(ws_expenses.get_all_records())
     else:
+        ws_expenses = None
         df_expenses = pd.DataFrame(columns=["Expense Name", "Amount", "Date", "Notes"])
 
     if df_expenses.empty:
         df_expenses = pd.DataFrame(columns=["Expense Name", "Amount", "Date", "Notes"])
 
-    # Sections
+    # Payments Section
     st.header("💳 Patient Payments")
     df_patients, total_patients = crud_section(df_patients, ws_patients, "Payment", ["Patient Name", "Amount Paid", "Date", "Notes"])
+    df_patients_filtered = filter_dataframe(df_patients, ["Patient Name", "Amount Paid", "Date", "Notes"], "Payments")
+    st.subheader("📋 Filtered Payments")
+    st.dataframe(df_patients_filtered)
+    st.write(f"**Filtered Total Payments: ₱{df_patients_filtered['Amount Paid'].sum():,.2f}**")
 
+    # Expenses Section
     st.header("💸 Clinic Expenses")
     df_expenses, total_expenses = crud_section(df_expenses, ws_expenses, "Expense", ["Expense Name", "Amount", "Date", "Notes"])
+    df_expenses_filtered = filter_dataframe(df_expenses, ["Expense Name", "Amount", "Date", "Notes"], "Expenses")
+    st.subheader("📋 Filtered Expenses")
+    st.dataframe(df_expenses_filtered)
+    st.write(f"**Filtered Total Expenses: ₱{df_expenses_filtered['Amount'].sum():,.2f}**")
 
     # Summary
     st.header("📊 Summary")
