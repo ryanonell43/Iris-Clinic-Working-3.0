@@ -22,7 +22,7 @@ def login_screen():
         if username == USERNAME and password == PASSWORD:
             st.session_state.logged_in = True
             st.success("✅ Login successful! Redirecting...")
-            st.rerun()
+            st.experimental_rerun()
         else:
             st.error("❌ Invalid username or password")
 
@@ -61,10 +61,8 @@ def main_app():
         df = pd.DataFrame(columns=["Patient Name", "Amount Paid", "Date", "Notes"])
 
     # --- CLEAN COLUMN NAMES ---
-    if not df.empty:
-        df.columns = df.columns.astype(str).str.strip()
-        df.columns = [col.title() for col in df.columns]
-    else:
+    df.columns = df.columns.astype(str).str.strip().str.title()
+    if df.empty:
         df = pd.DataFrame(columns=["Patient Name", "Amount Paid", "Date", "Notes"])
 
     # --- FILTER DATA ---
@@ -138,22 +136,28 @@ def main_app():
         )
 
         if st.button("Load Selected Row"):
-            st.session_state.patient_name_val = df.at[selected_index, "Patient Name"]
-            st.session_state.amount_paid_val = df.at[selected_index, "Amount Paid"]
-            st.session_state.date_val = pd.to_datetime(df.at[selected_index, "Date"])
-            st.session_state.notes_val = df.at[selected_index, "Notes"]
+            # Use .iloc to avoid KeyError
+            row = df.iloc[selected_index]
+            st.session_state.patient_name_val = row["Patient Name"]
+            st.session_state.amount_paid_val = row["Amount Paid"]
+            st.session_state.date_val = pd.to_datetime(row["Date"])
+            st.session_state.notes_val = row["Notes"]
 
         if "patient_name_val" in st.session_state:
             new_name = st.text_input("Patient Name", value=st.session_state.patient_name_val, key="edit_name")
-            new_amount = st.number_input("Amount Paid", min_value=0.0, step=0.01, value=float(st.session_state.amount_paid_val), key="edit_amount")
+            new_amount = st.number_input(
+                "Amount Paid", min_value=0.0, step=0.01,
+                value=float(st.session_state.amount_paid_val),
+                key="edit_amount"
+            )
             new_date = st.date_input("Date", value=st.session_state.date_val, key="edit_date")
             new_notes = st.text_area("Notes", value=st.session_state.notes_val, key="edit_notes")
 
             if st.button("Update Row"):
-                df.at[selected_index, "Patient Name"] = new_name
-                df.at[selected_index, "Amount Paid"] = new_amount
-                df.at[selected_index, "Date"] = str(new_date)
-                df.at[selected_index, "Notes"] = new_notes
+                df.iloc[selected_index, df.columns.get_loc("Patient Name")] = new_name
+                df.iloc[selected_index, df.columns.get_loc("Amount Paid")] = new_amount
+                df.iloc[selected_index, df.columns.get_loc("Date")] = str(new_date)
+                df.iloc[selected_index, df.columns.get_loc("Notes")] = new_notes
 
                 if sheet_connected:
                     try:
@@ -167,7 +171,7 @@ def main_app():
                 st.success("Row updated successfully!")
 
             if st.button("Delete Row"):
-                df = df.drop(selected_index).reset_index(drop=True)
+                df = df.drop(df.index[selected_index]).reset_index(drop=True)
                 if sheet_connected:
                     try:
                         sheet.delete_rows(selected_index + 2)
@@ -190,7 +194,7 @@ def main_app():
     # --- LOGOUT BUTTON ---
     if st.button("Logout"):
         st.session_state.logged_in = False
-        st.rerun()
+        st.experimental_rerun()
 
 
 # --- RUN APP ---
