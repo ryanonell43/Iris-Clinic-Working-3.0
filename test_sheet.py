@@ -63,8 +63,15 @@ def main_app():
 
     # --- CLEAN COLUMN NAMES SAFELY ---
     if not df.empty:
-        df.columns = df.columns.astype(str).str.strip()
-        df.columns = [col.title() for col in df.columns]
+        # normalize column names
+        df.columns = df.columns.astype(str).str.strip().str.lower()
+        rename_map = {
+            "patient name": "Patient Name",
+            "amount paid": "Amount Paid",
+            "date": "Date",
+            "notes": "Notes"
+        }
+        df.rename(columns=rename_map, inplace=True)
     else:
         df = pd.DataFrame(columns=["Patient Name", "Amount Paid", "Date", "Notes"])
 
@@ -125,7 +132,7 @@ def main_app():
 
     # --- EDIT / DELETE ENTRY ---
     st.subheader("Edit or Delete Payment")
-    if not df.empty:
+    if not df.empty and "Patient Name" in df.columns:
         if "selected_index" not in st.session_state:
             st.session_state.selected_index = 0
 
@@ -138,10 +145,13 @@ def main_app():
         )
 
         if st.button("Load Selected Row"):
-            st.session_state.patient_name_val = df.at[selected_index, "Patient Name"]
-            st.session_state.amount_paid_val = df.at[selected_index, "Amount Paid"]
-            st.session_state.date_val = pd.to_datetime(df.at[selected_index, "Date"])
-            st.session_state.notes_val = df.at[selected_index, "Notes"]
+            try:
+                st.session_state.patient_name_val = df.at[selected_index, "Patient Name"]
+                st.session_state.amount_paid_val = df.at[selected_index, "Amount Paid"]
+                st.session_state.date_val = pd.to_datetime(df.at[selected_index, "Date"])
+                st.session_state.notes_val = df.at[selected_index, "Notes"]
+            except KeyError as e:
+                st.error(f"⚠️ Column missing: {e}")
 
         if "patient_name_val" in st.session_state:
             new_name = st.text_input("Patient Name", value=st.session_state.patient_name_val, key="edit_name")
