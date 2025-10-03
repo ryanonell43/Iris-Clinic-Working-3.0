@@ -3,7 +3,6 @@ import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
 from datetime import datetime
-import json
 
 st.set_page_config(page_title="Patient Payments Tracker", layout="wide")
 st.title("💳 Patient Payments Tracker")
@@ -11,9 +10,8 @@ st.title("💳 Patient Payments Tracker")
 # --- GOOGLE SHEETS CONFIG ---
 SHEET_NAME = "PatientPayments"
 
-# Load credentials
-with open("secrets.json") as f:
-    creds_data = json.load(f)
+# Load credentials directly from Streamlit secrets
+creds_data = st.secrets["google_service_account"]
 
 creds = Credentials.from_service_account_info(
     creds_data,
