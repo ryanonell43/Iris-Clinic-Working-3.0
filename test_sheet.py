@@ -3,7 +3,6 @@ import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
 from datetime import datetime
-import json
 
 # --- LOGIN SETUP ---
 USERNAME = "irisclinic"
@@ -17,6 +16,7 @@ def login_screen():
     st.title("🔐 Login to Iris Clinic App")
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
+
     if st.button("Login"):
         if username == USERNAME and password == PASSWORD:
             st.session_state.logged_in = True
@@ -37,8 +37,9 @@ def main_app():
     ]
 
     try:
-        creds_dict = json.loads(st.secrets["google_service_account"]["json"])
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        creds = Credentials.from_service_account_info(
+            st.secrets["google_service_account"], scopes=scopes
+        )
         client = gspread.authorize(creds)
         sheet_connected = True
     except Exception as e:
@@ -75,15 +76,17 @@ def main_app():
         end_date = st.date_input("End Date", value=datetime.today())
 
     filtered_df = df.copy()
+
     if patient_filter and "Patient Name" in filtered_df.columns:
         filtered_df = filtered_df[
             filtered_df["Patient Name"].str.contains(patient_filter, case=False, na=False)
         ]
+
     if "Date" in filtered_df.columns:
-        filtered_df["Date"] = pd.to_datetime(filtered_df["Date"], errors='coerce')
+        filtered_df["Date"] = pd.to_datetime(filtered_df["Date"], errors="coerce")
         filtered_df = filtered_df[
-            (filtered_df["Date"] >= pd.to_datetime(start_date)) &
-            (filtered_df["Date"] <= pd.to_datetime(end_date))
+            (filtered_df["Date"] >= pd.to_datetime(start_date))
+            & (filtered_df["Date"] <= pd.to_datetime(end_date))
         ]
 
     # --- DISPLAY FILTERED DATA ---
@@ -102,28 +105,28 @@ def main_app():
         notes = st.text_area("Notes (optional)")
         submit = st.form_submit_button("Add Payment")
 
-        if submit:
-            if patient_name.strip() == "":
-                st.error("Patient Name cannot be empty.")
-            else:
-                new_row = {
-                    "Patient Name": patient_name,
-                    "Amount Paid": amount_paid,
-                    "Date": str(date_input),
-                    "Notes": notes
-                }
-                df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-                st.success(f"Added payment for {patient_name} successfully!")
-                if sheet_connected:
-                    try:
-                        sheet.append_row([patient_name, amount_paid, str(date_input), notes])
-                    except Exception as e:
-                        st.error(f"Could not save to Google Sheet: {e}")
+    if submit:
+        if patient_name.strip() == "":
+            st.error("Patient Name cannot be empty.")
+        else:
+            new_row = {
+                "Patient Name": patient_name,
+                "Amount Paid": amount_paid,
+                "Date": str(date_input),
+                "Notes": notes,
+            }
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+            st.success(f"Added payment for {patient_name} successfully!")
+
+            if sheet_connected:
+                try:
+                    sheet.append_row([patient_name, amount_paid, str(date_input), notes])
+                except Exception as e:
+                    st.error(f"Could not save to Google Sheet: {e}")
 
     # --- EDIT / DELETE ENTRY ---
     st.subheader("Edit or Delete Payment")
-
-    if not df.empty and all(col in df.columns for col in ["Patient Name", "Amount Paid", "Date", "Notes"]):
+    if not df.empty:
         if "selected_index" not in st.session_state:
             st.session_state.selected_index = 0
 
@@ -132,28 +135,32 @@ def main_app():
             min_value=0,
             max_value=len(df) - 1,
             step=1,
-            key="selected_index_input"
+            key="selected_index_input",
         )
 
         if st.button("Load Selected Row"):
-            if 0 <= selected_index < len(df):  # prevent out of range
-                st.session_state.patient_name_val = df.at[selected_index, "Patient Name"]
-                st.session_state.amount_paid_val = df.at[selected_index, "Amount Paid"]
-                st.session_state.date_val = pd.to_datetime(df.at[selected_index, "Date"], errors="coerce")
-                st.session_state.notes_val = df.at[selected_index, "Notes"]
-            else:
-                st.error("Invalid row index selected.")
+            st.session_state.patient_name_val = df.at[selected_index, "Patient Name"]
+            st.session_state.amount_paid_val = df.at[selected_index, "Amount Paid"]
+            st.session_state.date_val = pd.to_datetime(df.at[selected_index, "Date"])
+            st.session_state.notes_val = df.at[selected_index, "Notes"]
 
         if "patient_name_val" in st.session_state:
-            new_name = st.text_input("Patient Name", value=st.session_state.patient_name_val, key="edit_name")
-            new_amount = st.number_input("Amount Paid", min_value=0.0, step=0.01,
-                                         value=float(st.session_state.amount_paid_val), key="edit_amount")
-            new_date = st.date_input(
-                "Date",
-                value=st.session_state.date_val if pd.notna(st.session_state.date_val) else datetime.today(),
-                key="edit_date"
+            new_name = st.text_input(
+                "Patient Name", value=st.session_state.patient_name_val, key="edit_name"
             )
-            new_notes = st.text_area("Notes", value=st.session_state.notes_val, key="edit_notes")
+            new_amount = st.number_input(
+                "Amount Paid",
+                min_value=0.0,
+                step=0.01,
+                value=float(st.session_state.amount_paid_val),
+                key="edit_amount",
+            )
+            new_date = st.date_input(
+                "Date", value=st.session_state.date_val, key="edit_date"
+            )
+            new_notes = st.text_area(
+                "Notes", value=st.session_state.notes_val, key="edit_notes"
+            )
 
             if st.button("Update Row"):
                 df.at[selected_index, "Patient Name"] = new_name
@@ -165,34 +172,39 @@ def main_app():
                     try:
                         sheet.update(
                             f"A{selected_index + 2}:D{selected_index + 2}",
-                            [[new_name, new_amount, str(new_date), new_notes]]
+                            [[new_name, new_amount, str(new_date), new_notes]],
                         )
                     except Exception as e:
                         st.error(f"Could not update Google Sheet: {e}")
+
                 st.success("Row updated successfully!")
 
             if st.button("Delete Row"):
                 df = df.drop(selected_index).reset_index(drop=True)
+
                 if sheet_connected:
                     try:
                         sheet.delete_rows(selected_index + 2)
                     except Exception as e:
                         st.error(f"Could not delete from Google Sheet: {e}")
+
                 st.success("Row deleted successfully!")
 
-                # clear session values
-                for key in ["patient_name_val", "amount_paid_val", "date_val", "notes_val"]:
+                for key in [
+                    "patient_name_val",
+                    "amount_paid_val",
+                    "date_val",
+                    "notes_val",
+                ]:
                     if key in st.session_state:
                         del st.session_state[key]
-    else:
-        st.info("No payments available to edit or delete.")
 
     # --- DOWNLOAD CSV ---
     st.download_button(
         label="Download CSV",
         data=df.to_csv(index=False).encode("utf-8"),
         file_name="patient_payments.csv",
-        mime="text/csv"
+        mime="text/csv",
     )
 
     # --- LOGOUT BUTTON ---
