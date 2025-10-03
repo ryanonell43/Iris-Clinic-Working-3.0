@@ -3,77 +3,100 @@ import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
 from datetime import datetime
+import json
+
+st.set_page_config(page_title="Patient Payments Tracker", layout="wide")
+st.title("💳 Patient Payments Tracker")
 
 # --- GOOGLE SHEETS CONFIG ---
 SHEET_NAME = "PatientPayments"
 
-# Authenticate with Google Sheets
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = Credentials.from_service_account_info(st.secrets["google_service_account"], scopes=scope)
+# Load credentials
+with open("secrets.json") as f:
+    creds_data = json.load(f)
+
+creds = Credentials.from_service_account_info(
+    creds_data,
+    scopes=["https://www.googleapis.com/auth/spreadsheets"]
+)
+
 client = gspread.authorize(creds)
-sheet = client.open(SHEET_NAME).sheet1
+sh = client.open(SHEET_NAME)
 
-st.title("💰 Patient Payments Tracker")
-
-# --- Load existing data ---
 def load_data():
-    records = sheet.get_all_records()
-    return pd.DataFrame(records)
+    worksheet = sh.sheet1
+    data = worksheet.get_all_records()
+    return pd.DataFrame(data), worksheet
 
-df = load_data()
+def add_row(patient, date, amount, notes):
+    worksheet = sh.sheet1
+    worksheet.append_row([patient, date, amount, notes])
 
-# --- Display data ---
-st.subheader("📊 Current Records")
-if not df.empty:
-    st.dataframe(df)
-else:
-    st.info("No records yet. Add one below.")
+def update_row(row_number, patient, date, amount, notes):
+    worksheet = sh.sheet1
+    worksheet.update(f"A{row_number}:D{row_number}", [[patient, date, amount, notes]])
 
-# --- Add new record ---
-st.subheader("➕ Add New Payment")
-with st.form("new_record"):
-    patient_name = st.text_input("Patient Name")
+def delete_row(row_number):
+    worksheet = sh.sheet1
+    worksheet.delete_rows(row_number)
+
+# --- LOAD DATA ---
+df, worksheet = load_data()
+
+# --- ADD ENTRY ---
+st.subheader("➕ Add Payment Entry")
+with st.form("add_form", clear_on_submit=True):
+    patient = st.text_input("Patient Name")
+    date = st.date_input("Date", datetime.today())
     amount = st.number_input("Amount", min_value=0.0, step=0.01)
-    date_paid = st.date_input("Date Paid", value=datetime.today())
-    submit_new = st.form_submit_button("Add Payment")
+    notes = st.text_input("Notes (optional)")
+    submitted = st.form_submit_button("Add Entry")
+    if submitted and patient and amount > 0:
+        add_row(patient, str(date), amount, notes)
+        st.success("✅ Payment entry added!")
 
-if submit_new:
-    new_data = [patient_name, amount, str(date_paid)]
-    sheet.append_row(new_data)
-    st.success("✅ Record added successfully!")
-    st.rerun()
+# --- EDIT ENTRY ---
+st.subheader("✏️ Edit Payment Entry")
+with st.form("edit_form"):
+    row_to_edit = st.number_input("Row number to edit", min_value=2, step=1)  # skip headers
+    new_patient = st.text_input("New Patient Name")
+    new_date = st.date_input("New Date", datetime.today())
+    new_amount = st.number_input("New Amount", min_value=0.0, step=0.01)
+    new_notes = st.text_input("New Notes")
+    edit_submitted = st.form_submit_button("Update Row")
+    if edit_submitted and row_to_edit:
+        update_row(row_to_edit, new_patient, str(new_date), new_amount, new_notes)
+        st.success(f"✅ Row {row_to_edit} updated!")
 
-# --- Edit/Delete Existing Record ---
-st.subheader("✏️ Edit or ❌ Delete a Record")
+# --- DELETE ENTRY ---
+st.subheader("🗑️ Delete Payment Entry")
+with st.form("delete_form"):
+    row_to_delete = st.number_input("Row number to delete", min_value=2, step=1)  # skip headers
+    delete_submitted = st.form_submit_button("Delete Row")
+    if delete_submitted and row_to_delete:
+        delete_row(row_to_delete)
+        st.warning(f"❌ Row {row_to_delete} deleted!")
 
-if not df.empty:
-    # Let user select which row to edit
-    row_to_edit = st.number_input("Enter row number to edit/delete (starting from 2)", min_value=2, max_value=len(df)+1, step=1)
+# --- FILTER + VIEW DATA ---
+st.subheader("📊 Payment Records")
 
-    if st.button("Load Record"):
-        row_data = sheet.row_values(row_to_edit)
-        if row_data:
-            st.write("📌 Selected Record:", row_data)
+with st.expander("🔎 Filter Data"):
+    patient_filter = st.text_input("Search by Patient Name")
+    date_filter = st.date_input("Filter by Date", None)
 
-            # Pre-fill form for editing
-            with st.form("edit_record"):
-                patient_name_edit = st.text_input("Patient Name", value=row_data[0])
-                amount_edit = st.number_input("Amount", min_value=0.0, step=0.01, value=float(row_data[1]))
-                date_edit = st.date_input("Date Paid", value=datetime.strptime(row_data[2], "%Y-%m-%d").date())
+filtered_df = df.copy()
 
-                update_btn = st.form_submit_button("Update Record")
+# Filter by patient
+if patient_filter:
+    filtered_df = filtered_df[filtered_df["Patient"].str.contains(patient_filter, case=False, na=False)]
 
-            if update_btn:
-                sheet.update(f"A{row_to_edit}:C{row_to_edit}", [[patient_name_edit, amount_edit, str(date_edit)]])
-                st.success("✅ Record updated successfully!")
-                st.rerun()
+# Filter by date
+if date_filter:
+    filtered_df = filtered_df[filtered_df["Date"] == str(date_filter)]
 
-            # Delete option
-            if st.button("Delete Record"):
-                sheet.delete_rows(row_to_edit)
-                st.success("🗑️ Record deleted successfully!")
-                st.rerun()
-        else:
-            st.error("Row not found. Please check the row number.")
-else:
-    st.info("No records available to edit or delete.")
+st.dataframe(filtered_df)
+
+# --- TOTALS ---
+if "Amount" in filtered_df.columns:
+    total_payments = filtered_df["Amount"].sum()
+    st.metric("💰 Total Payments", f"₱{total_payments:,.2f}")
