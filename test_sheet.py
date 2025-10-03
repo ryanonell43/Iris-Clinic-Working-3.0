@@ -63,7 +63,6 @@ def main_app():
 
     # --- CLEAN COLUMN NAMES SAFELY ---
     if not df.empty:
-        # normalize column names
         df.columns = df.columns.astype(str).str.strip().str.lower()
         rename_map = {
             "patient name": "Patient Name",
@@ -148,10 +147,10 @@ def main_app():
             try:
                 st.session_state.patient_name_val = df.at[selected_index, "Patient Name"]
                 st.session_state.amount_paid_val = df.at[selected_index, "Amount Paid"]
-                st.session_state.date_val = pd.to_datetime(df.at[selected_index, "Date"])
+                st.session_state.date_val = pd.to_datetime(df.at[selected_index, "Date"], errors="coerce").date()
                 st.session_state.notes_val = df.at[selected_index, "Notes"]
-            except KeyError as e:
-                st.error(f"⚠️ Column missing: {e}")
+            except Exception as e:
+                st.error(f"⚠️ Could not load row: {e}")
 
         if "patient_name_val" in st.session_state:
             new_name = st.text_input("Patient Name", value=st.session_state.patient_name_val, key="edit_name")
@@ -160,37 +159,36 @@ def main_app():
             new_date = st.date_input("Date", value=st.session_state.date_val, key="edit_date")
             new_notes = st.text_area("Notes", value=st.session_state.notes_val, key="edit_notes")
 
-            if st.button("Update Row"):
-                df.at[selected_index, "Patient Name"] = new_name
-                df.at[selected_index, "Amount Paid"] = new_amount
-                df.at[selected_index, "Date"] = str(new_date)
-                df.at[selected_index, "Notes"] = new_notes
+            col1, col2 = st.columns(2)
 
-                if sheet_connected:
-                    try:
-                        sheet.update(
-                            f"A{selected_index + 2}:D{selected_index + 2}",
-                            [[new_name, new_amount, str(new_date), new_notes]]
-                        )
-                    except Exception as e:
-                        st.error(f"Could not update Google Sheet: {e}")
+            with col1:
+                if st.button("Update Row"):
+                    if sheet_connected:
+                        try:
+                            sheet.update(
+                                f"A{selected_index + 2}:D{selected_index + 2}",
+                                [[new_name, new_amount, str(new_date), new_notes]]
+                            )
+                            st.success(f"✅ Row {selected_index} updated successfully!")
+                            records = sheet.get_all_records()
+                            df = pd.DataFrame(records)
+                        except Exception as e:
+                            st.error(f"Could not update Google Sheet: {e}")
 
-                st.success("Row updated successfully!")
+            with col2:
+                if st.button("Delete Row"):
+                    if sheet_connected:
+                        try:
+                            sheet.delete_rows(selected_index + 2)
+                            st.success(f"❌ Row {selected_index} deleted successfully!")
+                            records = sheet.get_all_records()
+                            df = pd.DataFrame(records)
+                        except Exception as e:
+                            st.error(f"Could not delete from Google Sheet: {e}")
 
-            if st.button("Delete Row"):
-                df = df.drop(selected_index).reset_index(drop=True)
-
-                if sheet_connected:
-                    try:
-                        sheet.delete_rows(selected_index + 2)
-                    except Exception as e:
-                        st.error(f"Could not delete from Google Sheet: {e}")
-
-                st.success("Row deleted successfully!")
-
-                for key in ["patient_name_val", "amount_paid_val", "date_val", "notes_val"]:
-                    if key in st.session_state:
-                        del st.session_state[key]
+                    for key in ["patient_name_val", "amount_paid_val", "date_val", "notes_val"]:
+                        if key in st.session_state:
+                            del st.session_state[key]
 
     # --- DOWNLOAD CSV ---
     st.download_button(
